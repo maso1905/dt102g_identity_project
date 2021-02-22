@@ -1,0 +1,28 @@
+﻿
+@using Microsoft.AspNetCore.Identity
+@using AuthSystem.Areas.Identity.Data
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+
+@model IEnumerable<AuthSystem.Models.Game>
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h1>All Games</h1>
+
+<div class="gallery-grid">
+    @{
+        foreach (var game in Model)
+        {
+            <a href="@("/Game/Details/" + game.Id)">
+                <figure class="gallery-frame">
+                    <img src="@("~/img/" + game.ImageName)" width="340px" height="240px" class="gallery-img" asp-append-version="true" />
+                </figure>
+            </a>
+        }
+    }
+</div><!--end:gallery-grid-->
+

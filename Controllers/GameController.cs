@@ -12,10 +12,11 @@ using Microsoft.AspNetCore.Hosting;
 using System.IO;
 using Microsoft.AspNetCore.Identity;
 using AuthSystem.Areas.Identity.Data;
+using Microsoft.AspNetCore.Http;
 
 namespace AuthSystem.Controllers
 {
-    // Show index page only if user is logged in (authenticated).
+    // Show views only if user is logged in (authenticated).
     [Authorize]
     public class GameController : Controller
     {
@@ -30,18 +31,83 @@ namespace AuthSystem.Controllers
             _hostEnvironment = hostEnvironment;
         }
 
-        // GET: Game
-        public async Task<IActionResult> MyGames()
+        // GET: MyGames
+        public async Task<IActionResult> MyGames(string sortOrder, string searchString)
         {
-            var authDbContext = _context.Games.Include(g => g.ApplicationUser);
-            return View(await authDbContext.ToListAsync());
+            var games = from g in _context.Games
+                        .Include(g => g.ApplicationUser)
+                        select g;
+
+            if (!String.IsNullOrEmpty(searchString))
+            {
+                games = games.Where(s =>
+                    s.Genre.Contains(searchString) ||
+                    s.Name.Contains(searchString) ||
+                    s.ApplicationUser.FirstName.Contains(searchString)
+                );
+            }
+
+            ViewData["NameSortParm"] = String.IsNullOrEmpty(sortOrder) ? "name_desc" : "";
+            ViewData["DateSortParm"] = sortOrder == "Date" ? "date_desc" : "Date";
+            ViewData["GenreSortParm"] = sortOrder == "Genre" ? "genre_desc" : "Genre";
+   
+            switch (sortOrder)
+            {
+                case "name_desc":
+                    games = games.OrderByDescending(s => s.Name);
+                    break;
+                case "Date":
+                    games = games.OrderBy(s => s.Date);
+                    break;
+                case "date_desc":
+                    games = games.OrderByDescending(s => s.Date);
+                    break;
+                case "Genre":
+                    games = games.OrderBy(s => s.Genre);
+                    break;
+                case "genre_desc":
+                    games = games.OrderByDescending(s => s.Genre);
+                    break;
+                default:
+                    games = games.OrderBy(s => s.Name);
+                    break;
+            }
+            return View(await games.AsNoTracking().ToListAsync());
         }
 
-        // GET: Game
-        public async Task<IActionResult> Index()
-        {
-            var authDbContext = _context.Games.Include(g => g.ApplicationUser);
-            return View(await authDbContext.ToListAsync());
+        // GET: Index
+        [Route("")]
+        [Route("Game")]
+        [Route("Game/Index")]
+        public async Task<IActionResult> Index(string searchString, string sortOrder)
+        {           
+            var games = from m in _context.Games
+                          select m;
+
+            if (!String.IsNullOrEmpty(searchString))
+            {
+                games = games.Where(s => 
+                    s.Genre.Contains(searchString) ||
+                    s.Name.Contains(searchString) ||
+                    s.ApplicationUser.FirstName.Contains(searchString)
+                );
+            }
+
+            ViewData["DateSortParm"] = sortOrder == "date_desc" ? "Date" : "date_desc";
+
+            switch (sortOrder)
+            {
+                case "date_desc":
+                    games = games.OrderByDescending(s => s.Date);
+                    break;
+                case "Date":
+                    games = games.OrderBy(s => s.Date);
+                    break;
+                default:
+                    games = games.OrderBy(s => s.Date);
+                    break;
+            }
+            return View(await games.AsNoTracking().ToListAsync());
         }
 
         // GET: Game/Details/5
@@ -66,16 +132,13 @@ namespace AuthSystem.Controllers
         // GET: Game/Create
         public IActionResult Create()
         {
-            ViewData["UserFK"] = new SelectList(_context.Users, "Id", "Id");
             return View();
         }
 
         // POST: Game/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("Id,Name,Genre,ImageFile")] Game game)
+        public async Task<IActionResult> Create([Bind("Id,Name,Genre,Date,ImageFile")] Game game)
         {
             if (ModelState.IsValid)
             {
@@ -83,8 +146,8 @@ namespace AuthSystem.Controllers
                 string wwRootPath = _hostEnvironment.WebRootPath;
                 string fileName = Path.GetFileNameWithoutExtension(game.ImageFile.FileName);
                 string extension = Path.GetExtension(game.ImageFile.FileName);
-                game.ImageName=fileName = fileName + extension;
-                string path = Path.Combine(wwRootPath + "/img/", fileName);
+                game.ImageName=fileName = fileName + DateTime.Now.ToString("yymmssfff") + extension;
+                string path = Path.Combine(wwRootPath + "/img/userGameImg/", fileName);
                 using (var filestream = new FileStream(path, FileMode.Create))
                 {
                     await game.ImageFile.CopyToAsync(filestream);
@@ -92,11 +155,14 @@ namespace AuthSystem.Controllers
 
                 _context.Add(game);
 
+                var todaysDate = DateTime.Now.ToString("MM/dd/yyyy hh:mm tt");
+                game.Date = todaysDate;
+
                 var currentUser = await _userManager.GetUserAsync(User);
                 game.UserFK = currentUser.Id;
 
                 await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                return RedirectToAction(nameof(MyGames));
             }
             return View(game);
         }
@@ -109,12 +175,14 @@ namespace AuthSystem.Controllers
                 return NotFound();
             }
 
-            var game = await _context.Games.FindAsync(id);
+            var game = await _context.Games
+            .Include(g => g.ApplicationUser)
+            .FirstOrDefaultAsync(m => m.Id == id);
+
             if (game == null)
             {
                 return NotFound();
             }
-            ViewData["UserFK"] = new SelectList(_context.Users, "Id", "Id", game.UserFK);
             return View(game);
         }
 
@@ -123,7 +191,7 @@ namespace AuthSystem.Controllers
         // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Genre,ImageFile")] Game game)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Genre,Date,ImageFile")] Game game)
         {
             if (id != game.Id)
             {
@@ -134,19 +202,23 @@ namespace AuthSystem.Controllers
             {
                 try
                 {
+                    // DOESN'T REPLACE THE OLD IMAGE, JUST CREATES A NEW TO THE FOLDER.
                     // Saves images to wwroot/img folder.
                     string wwRootPath = _hostEnvironment.WebRootPath;
                     string fileName = Path.GetFileNameWithoutExtension(game.ImageFile.FileName);
                     string extension = Path.GetExtension(game.ImageFile.FileName);
-                    game.ImageName = fileName = fileName + extension;
-                    string path = Path.Combine(wwRootPath + "/img/", fileName);
+                    game.ImageName = fileName = fileName + DateTime.Now.ToString("yymmssfff") + extension;
+                    string path = Path.Combine(wwRootPath + "/img/userGameImg/", fileName);            
                     using (var filestream = new FileStream(path, FileMode.Create))
                     {
                         await game.ImageFile.CopyToAsync(filestream);
                     }
+                                       
+                    var todaysDate = DateTime.Now.ToString("MM/dd/yyyy hh:mm tt");
+                    game.Date = todaysDate; 
 
                     var currentUser = await _userManager.GetUserAsync(User);
-                    game.UserFK = currentUser.Id;
+                    game.UserFK = currentUser.Id; 
 
                     _context.Update(game);
                     await _context.SaveChangesAsync();
@@ -162,7 +234,7 @@ namespace AuthSystem.Controllers
                         throw;
                     }
                 }
-                return RedirectToAction(nameof(Index));
+                return RedirectToAction(nameof(MyGames));
             }
             return View(game);
         }
@@ -194,7 +266,7 @@ namespace AuthSystem.Controllers
             var game = await _context.Games.FindAsync(id);
 
             // Delete image from wwroot/img folder.
-            var imagePath = Path.Combine(_hostEnvironment.WebRootPath, "img", game.ImageName);
+            var imagePath = Path.Combine(_hostEnvironment.WebRootPath, "img/userGameImg/", game.ImageName);
             if (System.IO.File.Exists(imagePath))         
                 System.IO.File.Delete(imagePath);
 
@@ -206,6 +278,18 @@ namespace AuthSystem.Controllers
         private bool GameExists(int id)
         {
             return _context.Games.Any(e => e.Id == id);
+        }
+
+        // GET: Game/About
+        public IActionResult About()
+        {
+            Employee[] employees = new Employee[]
+            {
+                new Employee { Name="Evelyn",WorkTitle="CEO",ImageName="ceo.jpg" },
+                new Employee { Name="Chloe",WorkTitle="Lead Programmer",ImageName="leadprog.jpg" },
+                new Employee { Name="Mark",WorkTitle="Programmer",ImageName="prog.jpg" }
+            };
+            return View(employees);
         }
     }
 }

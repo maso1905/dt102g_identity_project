@@ -162,6 +162,8 @@ namespace AuthSystem.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Genre = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Date = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    ImageName = table.Column<string>(type: "nvarchar(50)", nullable: true),
                     UserFK = table.Column<string>(type: "nvarchar(450)", nullable: true)
                 },
                 constraints: table =>
